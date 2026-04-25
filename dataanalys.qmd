@@ -1,0 +1,187 @@
+---
+title: "dataanalys"
+format: html
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+source("data.R")
+```
+
+### Case: **Försäkringskostnader - Examinerande uppgift R-programmering**
+
+En analys över försäkringskostnader för att se om prissättningen verkar följa rimliga mönster och vilka faktorer som driver kostnader mest.
+
+#### Dataförståelse
+
+- 1100 rader, 14 kolumner.
+
+- Numeriska variabler som t.ex. 'bmi' och 'age', kategoriska variabler som t.ex. 'exercise_level' och 'plan_type'. Befintliga datatyper är: \<int\>\<chr\>\<dbl\>
+
+- Saknade värden finns i två variabler: 'bmi', 'annual_checkups' samt tomma värden i 'exercise_level'
+
+- Inkonsekvent text, 'plan_type' innehåller exempelvis både "standard" och "Standard" även fast de representerar samma värde.
+
+#### Datastädning och förberedelse
+
+- Saknade värden kommer ersättas med värden som minimerar påverkan på datamängden då de är så få (28 st, 20 st, 22 st).
+
+  **'bmi'**: saknade värden ersätts med medianen, undviker outliers för mer stabilitet
+
+  **'annual_checkups'**: precis som bmi ersätts den med medianen för minst påverkan utan att utesluta
+
+  **'exercise_level'**: sätts till den mest frekventa nivån, medium
+
+- Sex, region, exercise_level, plan_type konverteras till \<fct\> för enklare tolkning och användning i vår regressionsmodell.
+
+- Smoker, chronic_condition konverteras från \<chr\> till \<lgl\> för enklare tolkning av "yes/no"
+
+- Annual_checkups konverteras om från \<dbl\> till \<int\> då den enbart ska innehålla heltal
+
+- All text formateras korrekt: allt till små bokstäver, tar bort blanksteg före och efter ord
+
+- Skapar nya variabler:
+
+  bmi_category - för att få en bättre överblick över bmi så delas de in i fyra olika kategorier, underweight, normal, overweight samt obese. Detta möjliggör tydligare visualisering av samband och interaktioner.
+
+  age_group - på samma sätt delas ålder in i fem olika ålderspann, detta gör det lättare att förstå och se hur ålder påverkar försäkringskostnaderna och interagerar med andra variabler.
+
+  prior_events - för att förenkla modellen och fånga den sammantagna effekten av tidigare händelser skapade jag en ny variabel av prior_claims + prior_accidents, då de både har en ökande effekt på försäkringskostnaden.
+
+#### Beskrivande analys
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 8
+insurance_cost_viz
+```
+
+Vi ser att fördelningen av försäkringskostnaden är något högerskev med en topp runt 7000-9000 USD, en majoritet av individerna ligger mellan 5000-15000 USD. Ett fåtal individer har betydligt högre kostnader och det ger en svans mot högre värden(max 32559 USD), detta medför en stark påverkan på medelvärdet som kan ge missvisande siffror. Medianen ligger på 9124 USD medan medelvärdet hamnar på 10060 USD.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 8
+cost_vs_smokers_viz
+```
+
+En jämförelse mellan rökare och icke-rökare visar på en tydlig och stor skillnad i försäkringskostnader. Rökare har en betydligt högre median(runt 16500 USD) jämfört med icke-rökare(runt 8500 USD), samt en större spridning. Det är även bland rökare vi ser de absolut högsta kostnaderna. Detta visar att rökstatus är en stark faktor som behöver inkluderas i regressionsmodellen.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 8
+stat_sum_prior_events_viz
+```
+
+Denna graf visar genomsnittlig försäkringskostnad uppdelat på antalet tidigare händelser(prior_events), en variabel som jag skapat genom att summera prior_claims med prior_accidents. Resultatet visar tydligt att kostnaden ökar när antalet stiger. Nivå 5 är dock osäker då den enbart baseras på två individer i detta dataset. Återigen en faktor värd att undersöka i min regressionsmodell.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 9
+age_vs_cost_viz
+```
+
+Denna graf visar sambandet mellan ålder och försäkringskostnad, uppdelat på BMI-kategori och rökstatus. Resultatet visar en tydlig positiv trend, där kostnaden ökar med åldern i all grupper förutom underweight, samt ökar då BMI hamnar i obese-kategorin. Underweight-kategorin innehåller dock få observationer vilket gör den osäker. Vi ser även att rökstatus bland framförallt normal och overweight förstärker effekten av ökade kostnader. Alla dessa tre kategorier blir intressanta för min regressionsmodell - age, bmi, smoker.
+
+I tabellen nedan ser vi siffror som förtydligar skillnaderna mellan bmi-kategorier och rökstatus. Vi ser att medelvärdet ökar för varje kategori.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+table
+```
+
+```{r}
+#| echo: false
+#| fig-width: 8
+stat_sum_exercise_viz
+```
+
+För att ytterligare undersöka hur hälsorelaterade faktorer påverkar försäkringskostnaden har jag valt att inkludera en graf som visar den genomsnittliga kostnaden beroende på träningsnivå(low, medium, high). Vi såg tidigare att ett högre BMI påverkade kostnaden, och i grafen ovan ser vi att en låg träningsnivå resulterar i ökade kostnader jämfört med high och medium. Här finns ett eventuellt samband som jag behöver undersöka i min regressionsmodell.
+
+#### Regressionsanalys
+
+Jag börjar med att göra en modell där alla variabler inkluderas, detta för att undersöka vilka prediktorer som verkar mest intressanta för en djupare analys. Modellen förklarar 74.43% av variationen i försäkringskostnader(justerat R² = 0.7443).
+
+De faktorer som verkar påverkar minst är *sex, region, has_children* samt *annual_checkups*. Dessa plockas bort för att göra modellen mindre och lättare att tolka utan att påverka resultatet för mycket. Jag behåller de faktorer som har ett p-värde \< 0.05, vilket indikerar att de är statistiskt signifikanta. Den slutliga modellen innehåller följande 7 variabler:
+
+*smoker, age, bmi, chronic_condition, exercise_level, plan_type, prior_events*
+
+P-värdet i sig säger inget om effektens storlek, men fem av dessa variabler undersöktes redan i den beskrivande analysen och visade sig vara starka prediktorer för högre försäkringskostnader.
+
+Modellen med dessa sju variabler resulterade i liknande resultat som tidigare, den förklarar 74.42% av variationen(justerat R² =0.7442), ett tapp på enbart 0.01% med 4 färre variabler.
+
+Jag inkluderar även två enklare modeller med fem och tre variabler för att se hur mycket förklaringsgraden påverkas.
+
+- Modell med 5 variabler (*smoker, chronic_condition, prior_events, bmi, age)*. Förklarar 71.8% av variationen (justerat R² = 0.718).
+
+- Modell med 3 variabler (*smoker, chronic_condition, prior_events)*. Förklarar 65.02% av variationen (justerat R² = 0.6502).
+
+Nedan ser vi en summering av resultaten från de olika modellerna
+
+```{r}
+#| echo: false
+model_comparison
+```
+
+Tabellen ovan visar en jämförelse av de fyra olika regressionsmodellerna med varierande antal prediktorer. Modell 7 (med sju variabler) presterar i princip lika bra som den fulla modellen(justerat R² = 0.7443 mot 0.7442) trots att fyra variabler tagits bort. Residual standard error är dessutom lägst i Modell 7(2314), vilket indikerar att modellens prediktioner ligger närmare de faktiska värdena. Modell 5 och framför allt Modell 3 visar en tydlig försämring i både förklaringsgrad och residual standard error, vilket indikerar att de sju variablerna ger den bästa balansen mellan enkelhet och förklaringskraft, följt av Modell 5.
+
+```{r}
+#| echo: false
+#| fig-width: 8
+model_comparison_viz
+```
+
+Figuren ovan visar residualer för de tre olika regressionsmodellerna. Modell 3 visar tydliga strukturer i mönstret, vilket indikerar att modellen inte fångar upp all relevant information. Modell 5 och särskilt modell 7 visar på en betydligt mer slumpmässig spridning runt noll, vilket tyder på en bättre och mer tillförlitlig modell. Modell 5 är mer centrerad runt de lägre kostnaderna än Modell 7. Detta ger stöd för slutsatsen från tabellen ovan, att Modell 7 ger den bästa balansen mellan enkelhet och förklaringskraft.
+
+```{r}
+#| echo: false
+chosen_model_viz
+```
+
+Figuren visar faktiskt pris mot predikterat pris för Modell 7. De flesta punkterna ligger nära den röda linjen, vilket visar att modellens prediktioner stämmer väl överens med de faktiska värdena. Det finns dock en viss tendens till lite sämre uppskattningar kring de högsta kostnaderna vilket kan indikera att det finns icke-linjära mönster som inte fångas av modellen.
+
+#### Tolkningar och slutsatser
+
+Studien har undersökt vilka faktorer som påverkar försäkringskostnaderna i ett dataset på 1100 individer. Analysen visar tydligt att rökning är den starkaste prediktorn för höga kostnader, de har i genomsnitt cirka 7000 USD högre kostnader än icke-rökare, även efter justering för andra faktorer så som ålder och BMI.
+
+Andra faktorer med tydligt samband är kronisk sjukdom (chronic_condition), antal tidigare skador och olyckor (prior_events), fetma (obese) samt låg fysisk aktivitet. Alla dessa variabler visar ett statistiskt signifikant samband med högre kostnader. Modellen med sju prediktorer (smoker, age, bmi, chronic_condition, exercise_level, plan_type och prior_events) förklarar hela 74.3% av variationen i försäkringskostnader, vilket verkar ge stöd för att prissättningen följer rimliga mönster till viss del.
+
+Analysen visar också att kostnaderna ökar med åldern, och att effekterna är något starkare bland rökare och personer med högt BMI. Detta tyder på att livstilsfaktorer samverkar och förstärker risken för höga kostnader.
+
+**Vad modellen inte fångar:**
+
+Modellen fångar inte upp alla aspekter som påverkar kostnaden, det kan exempelvis finnas icke-linjära samband som denna modell inte kan prediktera. Dessutom saknas det variabler som skulle kunna påverka resultatet som till exempel inkomst, yrkesgrupp, kostvanor och eventuella subventioneringar via bidrag. Datasetets begränsade storlek påverkar dessutom resultatet negativt, då det finns väldigt få observationer bland vissa grupper, exempelvis väldigt få med lågt BMI(underweight).
+
+**Vilka förbättringar som hade kunnat göras**
+
+- För bättre resultat hade modellen kunnat utforska fler interaktioner mellan variabler, till exempel (*chronic_condition* **x** *age),* eller *(plan_type* **x** *exercise_level).* Skapat nya variabler som kombinerar prediktorer, mer än bara *prior_events*.
+
+- En annan förbättring skulle vara användandet av andra modeller än min linjära modell, till exempel en modell som fångar icke-linjära samband på ett bättre sätt.
+
+- Inkludera mer information om framförallt livsstil och ekonomi från andra källor.
+
+- Utöka antalet observationer.
+
+Sammanfattningsvis visar studien att försäkringskostnaderna i hög grad styrs av livsstilsrelaterade faktorer så som rökning, kronisk sjukdom, tidigare skador, fetma och fysisk aktivitet. Resultatet tyder därmed på att prissättningen delvis följer rimliga mönster, då alla dessa faktorer korrelerar med högre kostnader. Modellen kan därför fungera som ett värdefullt stöd vid framtida prissättning av nya kunder, speciellt för att identifiera högriskindivider och motivera kostnadsnivåer på ett mer statistiskt sätt. Detta kan minska risken för fel prissättning om modellen används som beslutsstöd.
+
+#### Självreflektion
+
+Jag tycker att jag gjorde flera saker bra i den här uppgiften. Jag hanterade alla problem i datan och förberedde den väl för den beskrivande analysen genom att både rensa upp, hantera och förbättra datatyper samt skapa nya variabler som jag ansåg vara relevanta för uppgiften(framför allt *prior_events* som visade sig vara användbar även i regressionsmodellen). Jag lade mycket tid på den beskrivande analysen och skapade flera olika visualiseringar som tydligt fångade samband mellan variabler och försäkringskostnader. Sedan tycker jag att jag gjorde ett ordentligt jobb med regressionsmodellerna där jag visade och jämförde fyra olika modeller med varierande antal prediktorer. Detta gjorde att jag kunde motivera varför jag valde modellen med just 7 variabler genom bland annat min residualanalys. Jag tycker även att jag avslutade arbetet bra med en välskriven och tydlig tolkning.
+
+Svårast med uppgiften var att motivera val av regressionsmodell. Det krävde en djupare förståelse av de olika statistiska måtten (p-värde, R², residual standard error) och att kunna koppla de till en användbar tolkning.
+
+Jag anser att arbetet motsvarar betyget VG.
+
+Jag uppfyller samtliga krav för G genom att ha gjort en fullständig beskrivande analys med flera relevanta visualiseringar, byggt en regressionsmodell samt analyserat resultaten och gjort tolkningar och slutsatser som beskriver vilka faktorer som verkar driva kostnader.
+
+Jag har dessutom jämfört fyra olika modeller och motiverat varför Modell 7 är den mest lämpade genom fördjupade tolkningar och analyser som exempelvis en residualanalys och en graf som visar predikterade värden mot faktiska värden. Jag har resonerat kritiskt kring modellens begränsningar och svagheter samt tolkat resultaten på ett självständigt sätt. Slutligen har jag diskuterat vad modellen fångar, samt föreslagit förbättringar.
