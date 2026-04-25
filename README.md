@@ -8,4 +8,4 @@ Paket som används: tidyverse
 
 Öppna -> Examinerande_uppgift_R.Rproj
 Öppna -> dataanalys.qmd
-Kör allt -> ctrl + alt + R
+Kör allt -> ctrl + shift + K
